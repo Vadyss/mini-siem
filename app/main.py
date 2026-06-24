@@ -87,26 +87,37 @@ def find_events(log_lines):
 
 def failed_events(events):
     
+    failed_logins_count = 0
+    
     for event in events:
-        if event["type"] == "failed_invalid_user":
-            failed_invalid_user_count += 1
-        elif event["type"] == "failed_login":
+        if event["type"] == "failed_login":
             failed_logins_count += 1
+    
+    return failed_logins_count
 
 def invalid_users(events):
     
+    invalid_users_count = 0
+    
     for event in events:
-        if event["type"] == "invalid_user":
+        if event["type"] in ("invalid_user", "failed_invalid_user"):
             invalid_users_count += 1
 
+    return invalid_users_count
+
 def accepted_logins(events):
+    
+    accepted_logins_count = 0
     
     for event in events:
         if event["type"] == "accepted_login":
             accepted_logins_count += 1
+            
+    return accepted_logins_count
 
 def unique_ips(events):
     
+    unique_ips_count = 0
     unique_ips = set()
 
     for event in events:
@@ -117,17 +128,23 @@ def unique_ips(events):
             
     unique_ips_count = len(unique_ips)
     
+    return unique_ips_count
+    
 def unique_users(events):
     
     unique_users = set()
+    unique_users_count = 0
     
     for event in events:
-        ip = event["ip"]
         
-        if ip is not None:
-            unique_ips.add(ip)
+        user = event["user"]
+        
+        if user is not None:
+            unique_users.add(user)
     
-    unique_users_count = len(unique_ips)
+    unique_users_count = len(unique_users)
+    
+    return unique_users_count
     
 def print_events(events):
     
@@ -139,8 +156,19 @@ def print_events(events):
         print(f"PORT : {event['port']}")
         print(f"RAW  : {event['raw']}")
 
+def summary_events(events):
+    
+    print("=" * 50)
+    print(f"Failed logins   : {failed_events(events)}")
+    print(f"Invalid user    : {invalid_users(events)}")
+    print(f"Accepted logins : {accepted_logins(events)}")
+    print(f"Unique IPs      : {unique_ips(events)}")
+    print(f"Unique users    : {unique_users(events)}")
+    
+
 if __name__ == "__main__":
     log_lines = open_logs()
     events = find_events(log_lines)
     
     print_events(events)
+    summary_events(events)
