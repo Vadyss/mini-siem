@@ -1,11 +1,21 @@
 from pathlib import Path
 import re
 import ipaddress
+from dateutil import parser as dateparser
+from datetime import datetime
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "traning_logs_auth.log"
 
 ip_regex = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+ipv6_regex = re.compile(r'[0-9a-fA-F:]{2,39}')
 port_regex = r"\bport\s+(\d+)\b"
+ts_patterns = [
+        r'^\[([^\]]+)\]',                          
+        r'^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)',         
+        r'^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})',
+        r'^(\d{2}/\w{3}/\d{4}[: ][\d:+ ]+)',       
+        r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})',
+]
 
 def open_logs():
     
@@ -15,17 +25,30 @@ def open_logs():
 def is_valid_ip(log):
     
     match = re.search(ip_regex, log)
-                
+    if match: 
+        try: 
+            ipaddress.ip_address(match.group(0))
+            return match.group(0)
+        except ValueError:
+                pass
+            
+    for candidate in ipv6_regex.findall(log):
+        try:
+            ipaddress.IPv6Address(candidate)
+            return str(ipaddress.IPv6Address(candidate))
+        except ValueError:
+            pass
+
+    return None
+
+def time_stamp(log):
+    
+    match = re.search(ts_patterns, log)
+    
     if not match:
         return None
-                
-    ip = match.group(0)
-                
-    try:
-        ipaddress.ip_address(ip)
-        return ip
-    except ValueError:
-        return None
+    
+    time_stamp = match
 
 def get_user(log):
     
@@ -34,6 +57,10 @@ def get_user(log):
         r"Failed password for (?P<user>\S+)",
         r"Invalid user (?P<user>\S+)",
         r"Accepted password for (?P<user>\S+)",
+        r"Accepted publickey for (?P<user>\S+)"
+        r"Received disconnect from (?P<user>\S+)"
+        r"session (?:opened|closed) for user (?P<user>\S+)"
+        r"Disconnected from user (?P<user>\S+)"
     ]
                 
     for pattern in patterns:
@@ -57,6 +84,28 @@ def get_event_type(log):
         return "invalid_user"
     elif "accepted password" in log_lower:
         return "accepted_login"
+    elif "accepted publickey for" in log_lower:
+        return "accepted_publickey"
+    elif "did not receive identification string from" in log_lower:
+        return "not_receive_identifiaction"
+    elif "maximum authentication attempts exceeded" or "too many authentication failures" in log_lower:
+        return "max_auth_attempts"
+    elif "connection closed by" in log_lower:
+        return "connection_closed"
+    elif "error: pam: Authentication failure" in log_lower:
+        return "pam_auth_fail"
+    elif "connection reset by" in log_lower:
+        return "connection_reset"
+    elif "everse mapping checking getaddrinfo for" in log_lower:
+        return "failed_everse_mapping_getaddrinfo"
+    elif "received disconnect from" in log_lower:
+        return "received_disconnect"
+    elif "disconnected from" in log_lower:
+        return "disconnected"
+    elif "session opened for" in log_lower:
+        return "session_opened"
+    elif "session closed for" in log_lower:
+        return "session_closed"
     else:
         return
 
@@ -90,7 +139,7 @@ def failed_events(events):
     failed_logins_count = 0
     
     for event in events:
-        if event["type"] == "failed_login":
+        if event["type"] in ("failed_login", "failed_invalid_user"):
             failed_logins_count += 1
     
     return failed_logins_count
