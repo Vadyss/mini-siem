@@ -9,13 +9,6 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "traning_logs_auth.
 ip_regex = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
 ipv6_regex = re.compile(r'[0-9a-fA-F:]{2,39}')
 port_regex = r"\bport\s+(\d+)\b"
-ts_patterns = [
-        r'^\[([^\]]+)\]',                          
-        r'^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)',         
-        r'^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})',
-        r'^(\d{2}/\w{3}/\d{4}[: ][\d:+ ]+)',       
-        r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})',
-]
 
 def open_logs():
     
@@ -42,13 +35,26 @@ def is_valid_ip(log):
     return None
 
 def time_stamp(log):
+    ts_patterns = [
+        r'^\[([^\]]+)\]',                          
+        r'^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)',         
+        r'^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})',
+        r'^(\d{2}/\w{3}/\d{4}[: ][\d:+ ]+)',       
+        r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})',
+    ]
     
-    match = re.search(ts_patterns, log)
-    
-    if not match:
-        return None
-    
-    time_stamp = match
+    for pattern in ts_patterns:
+        match = re.search(pattern, log)
+        if match:
+            try:
+                return dateparser.parse(
+                    match.group(1),
+                    default=datetime(datetime.now().year, 1, 1)
+                )
+            except (ValueError, OverflowError):
+                continue
+    return None
+
 
 def get_user(log):
     
@@ -123,6 +129,7 @@ def find_events(log_lines):
         port = int(port_match.group(1)) if port_match else None
         
         event = {
+            "time" : time_stamp(log),
             "type" : event_type,
             "ip" : is_valid_ip(log),
             "user" : get_user(log),
@@ -199,6 +206,7 @@ def print_events(events):
     
     for event in events:
         print("=" * 50)
+        print(f"TIME : {event['time']}")
         print(f"TYPE : {event['type']}")
         print(f"IP   : {event['ip']}")
         print(f"USER : {event['user']}")
