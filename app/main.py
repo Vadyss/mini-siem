@@ -3,12 +3,15 @@ import re
 import ipaddress
 from dateutil import parser as dateparser
 from datetime import datetime
+from collections import Counter
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "traning_logs_auth.log"
 
 ip_regex = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
 ipv6_regex = re.compile(r'[0-9a-fA-F:]{2,39}')
 port_regex = r"\bport\s+(\d+)\b"
+
+ip = []
 
 def open_logs():
     
@@ -18,9 +21,11 @@ def open_logs():
 def is_valid_ip(log):
     
     match = re.search(ip_regex, log)
+    
     if match: 
         try: 
             ipaddress.ip_address(match.group(0))
+            ip.append(match.group(0))
             return match.group(0)
         except ValueError:
                 pass
@@ -28,10 +33,11 @@ def is_valid_ip(log):
     for candidate in ipv6_regex.findall(log):
         try:
             ipaddress.IPv6Address(candidate)
+            ip.append(match.group(0))
             return str(ipaddress.IPv6Address(candidate))
         except ValueError:
             pass
-
+    
     return None
 
 def time_stamp(log):
@@ -201,6 +207,21 @@ def unique_users(events):
     unique_users_count = len(unique_users)
     
     return unique_users_count
+
+def ip_aggregation(events, ip):
+    
+    counts = Counter(ip)
+    
+    result = {k: v for k, v in counts.items() if v >= 2}
+    
+    if not result:
+        pass
+    if result:
+        
+        print("=" * 50)
+        
+        for ip, count in result.items():
+            print(f"{ip} : {count}")
     
 def print_events(events):
     
@@ -229,3 +250,4 @@ if __name__ == "__main__":
     
     print_events(events)
     summary_events(events)
+    ip_aggregation(events, ip)
