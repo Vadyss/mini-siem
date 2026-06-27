@@ -210,6 +210,7 @@ def unique_users(events):
 
 def ip_aggregation(events, ip):
     
+    pot_brute_force = []
     counts = Counter(ip)
     
     result = {k: v for k, v in counts.items() if v >= 2}
@@ -221,7 +222,17 @@ def ip_aggregation(events, ip):
         print("=" * 50)
         
         for ip, count in result.items():
-            print(f"{ip} : {count}")
+            
+            if count > 5 or count == 5:
+                print("Potencional brute force attack from this IP:")
+                print(f"{ip} : {count}")
+                
+                brute_foce_adress = {ip : count}
+                
+                return pot_brute_force.append(brute_foce_adress)
+                
+            elif count < 5:
+                print(f"{ip} : {count}")
     
 def print_events(events):
     
@@ -243,11 +254,17 @@ def summary_events(events):
     print(f"Unique IPs      : {unique_ips(events)}")
     print(f"Unique users    : {unique_users(events)}")
     
-
+def summary_pot_brute_force(pot_brute_force):
+    
+    print("=" * 50)
+    print(f"Potencional brute force attack: {pot_brute_force}")
+    
 if __name__ == "__main__":
     log_lines = open_logs()
     events = find_events(log_lines)
     
     print_events(events)
     summary_events(events)
-    ip_aggregation(events, ip)
+    
+    pot_brute_force = ip_aggregation(events, ip)
+    summary_pot_brute_force(pot_brute_force)
