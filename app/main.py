@@ -104,12 +104,13 @@ def find_events(log_lines):
         port = int(port_match.group(1)) if port_match else None
 
         event = {
-            "time" : time_stamp(log),
-            "type" : event_type,
-            "ip" : is_valid_ip(log),
-            "user" : get_user(log),
-            "port" : port,
-            "raw" : log
+            "time"   : time_stamp(log),
+            "type"   : event_type,
+            "ip"     : is_valid_ip(log),
+            "user"   : get_user(log),
+            "port"   : port,
+            "raw"    : log,
+            "source" : "pam_unix" if "pam_unix" in log else "sshd"  # ← přidej
         }
                 
         events.append(event)
@@ -121,7 +122,10 @@ def failed_events(events):
     failed_logins_count = 0
     
     for event in events:
-        if event["type"] in ("failed_login", "failed_invalid_user"):
+        if event["source"] == "pam_unix":
+            continue
+
+        if event["type"] in ("failed_login", "failed_root_login"):
             failed_logins_count += 1
     
     return failed_logins_count
@@ -131,7 +135,10 @@ def invalid_users(events):
     invalid_users_count = 0
     
     for event in events:
-        if event["type"] in ("invalid_user", "failed_invalid_user"):
+        if event["source"] == "pam_unix":
+            continue
+        
+        if event["type"] == "invalid_user":
             invalid_users_count += 1
 
     return invalid_users_count
@@ -177,38 +184,66 @@ def unique_users(events):
     
     return unique_users_count
 
+def has_window_trigger(timestamps, window_minutes=5, threshold=5):
+    
+    timestamps = sorted(timestamps)
+    start = 0
+    
+    for end in range(len(timestamps)):
+        
+        while (timestamps[end] - timestamps[start]).total_seconds() > window_minutes * 60:
+            start += 1
+        
+        if (end - start + 1) >= threshold:
+            return True
+    
+    return False
+
+
 def ip_aggregation(events):
     
-    ip = []
+    fail_timestamps = {}
     
     for event in events:
-        if event['type'] in ("invalid_user", "failed_invalid_user" , "failed_login"):
-            ip.append(event['ip'])
+        if event["source"] == "pam_unix":
+            continue
+        if event["type"] not in ("invalid_user", "failed_login", "failed_root_login"):
+            continue
+        if event["ip"] is None or event["time"] is None:
+            continue
+        
+        ip = event["ip"]
+        
+        if ip not in fail_timestamps:
+            fail_timestamps[ip] = []
+            
+        fail_timestamps[ip].append(event["time"])
     
-    sec_brute_force = []
     pot_brute_force = []
-    counts = Counter(ip)
-    
-    result = {k: v for k, v in counts.items() if v >= 2}
-    
-    if not result:
-        return pot_brute_force
+    sec_brute_force = []
     
     print("=" * 50)
     
-    for ip, count in result.items():
-        if count >= 5:
-            
-                successful = any(event['ip'] == ip and event['type'] == "accepted_login" for event in events)
-
-                if successful:
-                    print("Successful brute force attack from this IP:")
-                    print(f"{ip} : {count}")
-                    sec_brute_force.append({ip: count})
-                else:
-                    print("Potencial brute force attack from this IP:")
-                    print(f"{ip} : {count}")
-                    pot_brute_force.append({ip: count})
+    for ip, timestamps in fail_timestamps.items():
+        
+        if not has_window_trigger(timestamps):
+            continue
+        
+        successful = any(
+            event["ip"] == ip and event["type"] == "accepted_login"
+            for event in events
+        )
+        
+        count = len(timestamps)
+        
+        if successful:
+            print(f"Successful brute force attack from this IP:")
+            print(f"{ip} : {count}")
+            sec_brute_force.append({ip: count})
+        else:
+            print(f"Potential brute force attack from this IP:")
+            print(f"{ip} : {count}")
+            pot_brute_force.append({ip: count})
     
     return pot_brute_force, sec_brute_force
 
