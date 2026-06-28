@@ -56,7 +56,7 @@ patterns = [
 
     # --- Misc / other relevant patterns ---
     r"User (?P<user>\S+) authenticated",
-    r"Received disconnect from (?P<user>\S+)",
+    r"Received disconnect for (?P<user>\S+) from",
     r"subsystem request for sftp by user (?P<user>\S+)",
     r"command=.* by user (?P<user>\S+)",
     r"Forced command .* for user (?P<user>\S+)",

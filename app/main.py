@@ -1,434 +1,107 @@
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import re
-import ipaddress
-from dateutil import parser as dateparser
-from datetime import datetime
-from collections import Counter
+from parser import open_logs, find_events
+from detections.brute_force import ip_aggregation, ip_severity
+from detections.spray import user_aggregation, user_severity
 
-from assets.event_types_assets import EVENT_PATTERNS
-from assets.get_user_assets import patterns
+import argparse
 
-LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "traning_logs_auth.log"
 
-ip_regex = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
-ipv6_regex = re.compile(r'[0-9a-fA-F:]{2,39}')
-port_regex = r"\bport\s+(\d+)\b"
+DEFAULT_LOG = Path(__file__).resolve().parent.parent / "logs" / "traning_logs_auth.log"
 
-ip = []
+parser = argparse.ArgumentParser()
+parser.add_argument("--log", default=str(DEFAULT_LOG))
+parser.add_argument("--output", choices=["print", "json", "csv"], default="print")
+args = parser.parse_args()
 
-def open_logs():
-    
-    with LOG_PATH.open("r", encoding="utf-8") as file:
-        return [line.strip() for line in file]
-
-def is_valid_ip(log):
-    
-    match = re.search(ip_regex, log)
-    
-    if match: 
-        try: 
-            ipaddress.ip_address(match.group(0))
-            ip.append(match.group(0))
-            return match.group(0)
-        except ValueError:
-                pass
-            
-    for candidate in ipv6_regex.findall(log):
-        try:
-            valid = str(ipaddress.IPv6Address(candidate))
-            ip.append(valid)
-            return valid
-        except ValueError:
-            pass
-    
-    return None
-
-def time_stamp(log):
-    ts_patterns = [
-        r'^\[([^\]]+)\]',                          
-        r'^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)',         
-        r'^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})',
-        r'^(\d{2}/\w{3}/\d{4}[: ][\d:+ ]+)',       
-        r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})',
-    ]
-    
-    for pattern in ts_patterns:
-        match = re.search(pattern, log)
-        if match:
-            try:
-                return dateparser.parse(
-                    match.group(1),
-                    default=datetime(datetime.now().year, 1, 1)
-                )
-            except (ValueError, OverflowError):
-                continue
-    return None
-
-def get_user(log):
-                
-    for pattern in patterns:
-        match = re.search(pattern, log, re.IGNORECASE)
-
-        if match:
-            return match.group("user")
-
-    return None            
-
-def get_event_type(log):
-    
-    log_lower = log.lower()
-
-    for pattern, event_type in EVENT_PATTERNS:
-        if pattern in log_lower:
-            return event_type
-    return None
-
-def find_events(log_lines):
-    events = []
-
-    for log in log_lines:
-        
-        event_type = get_event_type(log)
-        
-        if event_type is None:
-            continue
-        
-        port_match = re.search(port_regex, log)
-        port = int(port_match.group(1)) if port_match else None
-
-        event = {
-            "time"   : time_stamp(log),
-            "type"   : event_type,
-            "ip"     : is_valid_ip(log),
-            "user"   : get_user(log),
-            "port"   : port,
-            "raw"    : log,
-            "source" : "pam_unix" if "pam_unix" in log else "sshd"  # ← přidej
-        }
-                
-        events.append(event)
-        
-    return events
+LOG_PATH = Path(args.log).resolve()
 
 def failed_events(events):
-    
-    failed_logins_count = 0
-    
-    for event in events:
-        if event["source"] == "pam_unix":
-            continue
-
-        if event["type"] in ("failed_login", "failed_root_login"):
-            failed_logins_count += 1
-    
-    return failed_logins_count
+    return sum(
+        1 for e in events
+        if e["source"] != "pam_unix" and e["type"] in ("failed_login", "failed_root_login")
+    )
 
 def invalid_users(events):
-    
-    invalid_users_count = 0
-    
-    for event in events:
-        if event["source"] == "pam_unix":
-            continue
-        
-        if event["type"] == "invalid_user":
-            invalid_users_count += 1
-
-    return invalid_users_count
+    return sum(
+        1 for e in events
+        if e["source"] != "pam_unix" and e["type"] == "invalid_user"
+    )
 
 def accepted_logins(events):
-    
-    accepted_logins_count = 0
-    
-    for event in events:
-        if event["type"] == "accepted_login":
-            accepted_logins_count += 1
-            
-    return accepted_logins_count
+    return sum(1 for e in events if e["type"] == "accepted_login")
 
 def unique_ips(events):
-    
-    unique_ips_count = 0
-    unique_ips = set()
+    return len({e["ip"] for e in events if e["ip"] is not None})
 
-    for event in events:
-        ip = event["ip"]
-        
-        if ip is not None:
-            unique_ips.add(ip)
-            
-    unique_ips_count = len(unique_ips)
-    
-    return unique_ips_count
-    
 def unique_users(events):
-    
-    unique_users = set()
-    unique_users_count = 0
-    
-    for event in events:
-        
-        user = event["user"]
-        
-        if user is not None:
-            unique_users.add(user)
-    
-    unique_users_count = len(unique_users)
-    
-    return unique_users_count
-
-def has_window_trigger(timestamps, window_minutes=10, threshold=5):
-    
-    timestamps = sorted(timestamps)
-    start = 0
-    
-    for end in range(len(timestamps)):
-        
-        while (timestamps[end] - timestamps[start]).total_seconds() > window_minutes * 60:
-            start += 1
-        
-        if (end - start + 1) >= threshold:
-            return True
-    
-    return False
-
-
-def ip_aggregation(events):
-    
-    fail_timestamps = {}
-    
-    for event in events:
-        if event["source"] == "pam_unix":
-            continue
-        if event["type"] not in ("invalid_user", "failed_login", "failed_root_login"):
-            continue
-        if event["ip"] is None or event["time"] is None:
-            continue
-        
-        ip = event["ip"]
-        
-        if ip not in fail_timestamps:
-            fail_timestamps[ip] = []
-            
-        fail_timestamps[ip].append(event["time"])
-    
-    pot_brute_force = []
-    sec_brute_force = []
-    
-    print("=" * 50)
-    
-    for ip, timestamps in fail_timestamps.items():
-        
-        if not has_window_trigger(timestamps):
-            continue
-        
-        successful = any(
-            event["ip"] == ip and event["type"] == "accepted_login"
-            for event in events
-        )
-        
-        count = len(timestamps)
-        
-        if successful:
-            print(f"Potential successful brute force attack from this IP:")
-            print(f"{ip} : {count}")
-            sec_brute_force.append({ip: count})
-        else:
-            print(f"Potential brute force attack from this IP:")
-            print(f"{ip} : {count}")
-            pot_brute_force.append({ip: count})
-    
-    return pot_brute_force, sec_brute_force
-
-def user_aggregation(events):
-    
-    fail_timestamps = {}
-    
-    for event in events:
-        if event["source"] == "pam_unix":
-            continue
-        if event["type"] not in ("invalid_user", "failed_login", "failed_root_login"):
-            continue
-        if event["user"] is None or event["time"] is None:
-            continue
-        
-        user = event["user"]
-        
-        if user not in fail_timestamps:
-            fail_timestamps[user] = []
-        
-        fail_timestamps[user].append(event["time"]) 
-    
-    pot_brute_force_user = []
-    sec_brute_force_user = []
-    
-    print("=" * 50)
-    
-    for user, timestamps in fail_timestamps.items():
-        
-        if not has_window_trigger(timestamps):
-            continue
-        
-        successful = any(
-            event["user"] == user and event["type"] == "accepted_login"
-            for event in events
-        )
-        
-        count = len(timestamps)
-
-        if successful:
-            print(f"Potential successful brute force attack on this user:")
-            print(f"{user} : {count}")
-            sec_brute_force_user.append({user: count})
-        else:
-            print(f"Potential brute force attack on this user:")
-            print(f"{user} : {count}")
-            pot_brute_force_user.append({user: count})
-    
-    return pot_brute_force_user, sec_brute_force_user
-
-def ip_severity(pot_brute_force_ip, sec_brute_force_ip):
-    
-    pot_brute_force_ip_severity = []
-    sec_brute_force_ip_severity = []
-    
-    low = "LOW"
-    mid = "MID"
-    high = "HIGH"
-    critical = "CRITICAL"
-    
-    for entry in pot_brute_force_ip:
-        for ip, count in entry.items():
-        
-            if count <= 5:
-                pot_brute_force_ip_severity.append({ip: {"count": count, "severity": low}})
-            elif count <= 20:
-                pot_brute_force_ip_severity.append({ip: {"count": count, "severity": mid}})
-            elif count <= 50:
-                pot_brute_force_ip_severity.append({ip: {"count": count, "severity": high}})
-            else:
-                pot_brute_force_ip_severity.append({ip: {"count": count, "severity": critical}})
-            
-    for entry in sec_brute_force_ip:
-        for ip, count in entry.items():
-        
-            if count <= 5:
-                sec_brute_force_ip_severity.append({ip: {"count": count, "severity": low}})
-            elif count <= 20:
-                sec_brute_force_ip_severity.append({ip: {"count": count, "severity": mid}})
-            elif count <= 50:
-                sec_brute_force_ip_severity.append({ip: {"count": count, "severity": high}})
-            else:
-                sec_brute_force_ip_severity.append({ip: {"count": count, "severity": critical}})
-    
-    print("\n--- Potential Brute Force from IPs ---")
-    for entry in pot_brute_force_ip_severity:
-        for ip, data in entry.items():
-            print(f"  {ip} | count: {data['count']} | severity: {data['severity']}")
-
-    print("\n--- Successful Brute Force from IPs ---")
-    for entry in sec_brute_force_ip_severity:
-        for ip, data in entry.items():
-            print(f"  {ip} | count: {data['count']} | severity: {data['severity']}")
-    
-    return pot_brute_force_ip_severity, sec_brute_force_ip_severity
-
-def user_severity(pot_brute_force_user, sec_brute_force_user):
-    
-    pot_brute_force_user_severity = []
-    sec_brute_force_user_severity = []
-    
-    low = "LOW"
-    mid = "MID"
-    high = "HIGH"
-    critical = "CRITICAL"
-    
-    for entry in pot_brute_force_user:
-        for user, count in entry.items():
-        
-            if count <= 5:
-                pot_brute_force_user_severity.append({user: {"count": count, "severity": low}})
-            elif count <= 20:
-                pot_brute_force_user_severity.append({user: {"count": count, "severity": mid}})
-            elif count <= 50:
-                pot_brute_force_user_severity.append({user: {"count": count, "severity": high}})
-            else:
-                pot_brute_force_user_severity.append({user: {"count": count, "severity": critical}})
-    
-    for entry in sec_brute_force_user:
-        for user, count in entry.items():
-        
-            if count <= 5:
-                sec_brute_force_user_severity.append({user: {"count": count, "severity": low}})
-            elif count <= 20:
-                sec_brute_force_user_severity.append({user: {"count": count, "severity": mid}})
-            elif count <= 50:
-                sec_brute_force_user_severity.append({user: {"count": count, "severity": high}})
-            else:
-                sec_brute_force_user_severity.append({user: {"count": count, "severity": critical}})
-
-    print("\n--- Potential Brute Force on Users ---")
-    for entry in pot_brute_force_user_severity:
-        for user, data in entry.items():
-            print(f"  {user} | count: {data['count']} | severity: {data['severity']}")
-
-    print("\n--- Successful Brute Force on Users ---")
-    for entry in sec_brute_force_user_severity:
-        for user, data in entry.items():
-            print(f"  {user} | count: {data['count']} | severity: {data['severity']}")
-    
-    return pot_brute_force_user_severity, sec_brute_force_user_severity
-
-def print_events(events):
-    
-    for event in events:
-        print("=" * 50)
-        print(f"TIME : {event['time']}")
-        print(f"TYPE : {event['type']}")
-        print(f"IP   : {event['ip']}")
-        print(f"USER : {event['user']}")
-        print(f"PORT : {event['port']}")
-        print(f"RAW  : {event['raw']}")
+    return len({e["user"] for e in events if e["user"] is not None})
 
 def summary_events(events):
-    
     print("=" * 50)
     print(f"Failed logins   : {failed_events(events)}")
     print(f"Invalid user    : {invalid_users(events)}")
     print(f"Accepted logins : {accepted_logins(events)}")
     print(f"Unique IPs      : {unique_ips(events)}")
     print(f"Unique users    : {unique_users(events)}")
-    
-def summary_pot_brute_force_ip(pot_brute_force_ip, sec_brute_force_ip):
-    
-    print("=" * 50)
-    print(f"Potencional brute force attack from this ip: {pot_brute_force_ip}")
-    print("=" * 50)
-    print(f"Potencional successful brute force attack from this ip: {sec_brute_force_ip}")
-
-def summary_pot_brute_force_user(pot_brute_force_user, sec_brute_force_user):
-    
-    print("=" * 50)
-    print(f"Potencional brute force attack on this user: {pot_brute_force_user}")
-    print("=" * 50)
-    print(f"Potencional successful brute force attack on this user: {sec_brute_force_user}")
 
 if __name__ == "__main__":
-    log_lines = open_logs()
+    log_lines = open_logs(LOG_PATH)
     events = find_events(log_lines)
-    
-    print_events(events)
-    summary_events(events)
-    
+
     pot_brute_force_ip, sec_brute_force_ip = ip_aggregation(events)
-    pot_brute_force_user, sec_brute_force_user = user_aggregation(events)
-    
-    summary_pot_brute_force_ip(pot_brute_force_ip, sec_brute_force_ip)
-    summary_pot_brute_force_user(pot_brute_force_user, sec_brute_force_user)
-    
-    pot_brute_force_ip_severity, sec_brute_force_ip_severity = ip_severity(pot_brute_force_ip, sec_brute_force_ip)
-    pot_brute_force_user_severity, sec_brute_force_user_severity = user_severity(pot_brute_force_user, sec_brute_force_user)
+    heavy_ips = {ip for entry in pot_brute_force_ip + sec_brute_force_ip for ip in entry}
+    spray = user_aggregation(events, heavy_ips)
+
+    pot_severity, sec_severity = ip_severity(pot_brute_force_ip, sec_brute_force_ip)
+    spray_severity = user_severity(spray)
+
+    results = {
+        "summary": {
+            "failed_logins"   : failed_events(events),
+            "invalid_users"   : invalid_users(events),
+            "accepted_logins" : accepted_logins(events),
+            "unique_ips"      : unique_ips(events),
+            "unique_users"    : unique_users(events),
+        },
+        "potential_brute_force" : pot_severity,
+        "compromise"            : sec_severity,
+        "spray"                 : spray_severity,
+    }
+
+    if args.output == "json":
+        import json
+        print(json.dumps(results, indent=2, default=str))
+
+    elif args.output == "csv":
+        import csv, sys
+        writer = csv.writer(sys.stdout)
+        writer.writerow(["type", "entity", "count", "severity"])
+        for entry in pot_severity:
+            for ip, data in entry.items():
+                writer.writerow(["potential_brute_force", ip, data["count"], data["severity"]])
+        for entry in sec_severity:
+            for ip, data in entry.items():
+                writer.writerow(["compromise", ip, data["count"], data["severity"]])
+        for entry in spray_severity:
+            for user, data in entry.items():
+                writer.writerow(["spray", user, data["count"], data["severity"]])
+
+    else:
+        summary_events(events)
+        print("\n--- Potential Brute Force from IPs ---")
+        for entry in pot_severity:
+            for ip, data in entry.items():
+                print(f"  {ip} | count: {data['count']} | severity: {data['severity']}")
+        print("\n--- Successful Brute Force from IPs (COMPROMISE) ---")
+        for entry in sec_severity:
+            for ip, data in entry.items():
+                print(f"  {ip} | count: {data['count']} | severity: {data['severity']}")
+        print("\n--- Password Spray on Users ---")
+        for entry in spray_severity:
+            for user, data in entry.items():
+                print(f"  {user} | unique source IPs: {data['count']} | severity: {data['severity']}")
