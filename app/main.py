@@ -1,10 +1,7 @@
 import sys
 from pathlib import Path
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-print(sys.path) 
-print(Path(__file__).resolve().parent.parent) 
 
 import re
 import ipaddress
@@ -184,7 +181,7 @@ def unique_users(events):
     
     return unique_users_count
 
-def has_window_trigger(timestamps, window_minutes=5, threshold=5):
+def has_window_trigger(timestamps, window_minutes=10, threshold=5):
     
     timestamps = sorted(timestamps)
     start = 0
@@ -237,7 +234,7 @@ def ip_aggregation(events):
         count = len(timestamps)
         
         if successful:
-            print(f"Successful brute force attack from this IP:")
+            print(f"Potential successful brute force attack from this IP:")
             print(f"{ip} : {count}")
             sec_brute_force.append({ip: count})
         else:
@@ -246,6 +243,59 @@ def ip_aggregation(events):
             pot_brute_force.append({ip: count})
     
     return pot_brute_force, sec_brute_force
+
+def user_aggregation(events):
+    
+    fail_timestamps = {}
+    
+    for event in events:
+        if event["source"] == "pam_unix":
+            continue
+        if event["type"] not in ("invalid_user", "failed_login", "failed_root_login"):
+            continue
+        if event["user"] is None or event["time"] is None:
+            continue
+        
+        user = event["user"]
+        
+        if user not in fail_timestamps:
+            fail_timestamps[user] = []
+        
+        fail_timestamps[user].append(event["time"]) 
+    
+    pot_brute_force_user = []
+    sec_brute_force_user = []
+    
+    print("=" * 50)
+    
+    for user, timestamps in fail_timestamps.items():
+        
+        if not has_window_trigger(timestamps):
+            continue
+        
+        successful = any(
+            event["user"] == user and event["type"] == "accepted_login"
+            for event in events
+        )
+        
+        count = len(timestamps)
+
+        if successful:
+            print(f"Potential successful brute force attack on this user:")
+            print(f"{user} : {count}")
+            sec_brute_force_user.append({user: count})
+        else:
+            print(f"Potential brute force attack on this user:")
+            print(f"{user} : {count}")
+            pot_brute_force_user.append({user: count})
+    
+    return pot_brute_force_user, sec_brute_force_user
+
+def ip_severity(pot_brute_force_user, sec_brute_force_user):
+    return
+
+def user_severity(pot_brute_force_user, sec_brute_force_user):
+    return
 
 def print_events(events):
     
@@ -267,11 +317,20 @@ def summary_events(events):
     print(f"Unique IPs      : {unique_ips(events)}")
     print(f"Unique users    : {unique_users(events)}")
     
-def summary_pot_brute_force(pot_brute_force):
+def summary_pot_brute_force_ip(pot_brute_force_ip, sec_brute_force_ip):
     
     print("=" * 50)
-    print(f"Potencional brute force attack: {pot_brute_force}")
+    print(f"Potencional brute force attack from this ip: {pot_brute_force_ip}")
+    print("=" * 50)
+    print(f"Potencional successful brute force attack from this ip: {sec_brute_force_ip}")
+
+def summary_pot_brute_force_user(pot_brute_force_user, sec_brute_force_user):
     
+    print("=" * 50)
+    print(f"Potencional brute force attack on this user: {pot_brute_force_user}")
+    print("=" * 50)
+    print(f"Potencional successful brute force attack on this user: {sec_brute_force_user}")
+
 if __name__ == "__main__":
     log_lines = open_logs()
     events = find_events(log_lines)
@@ -279,5 +338,8 @@ if __name__ == "__main__":
     print_events(events)
     summary_events(events)
     
-    pot_brute_force, sec_brute_force = ip_aggregation(events)
-    summary_pot_brute_force(pot_brute_force)
+    pot_brute_force_ip, sec_brute_force_ip = ip_aggregation(events)
+    pot_brute_force_user, sec_brute_force_user = user_aggregation(events)
+    
+    summary_pot_brute_force_ip(pot_brute_force_ip, sec_brute_force_ip)
+    summary_pot_brute_force_user(pot_brute_force_user, sec_brute_force_user)
