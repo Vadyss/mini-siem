@@ -1,9 +1,19 @@
+import sys
 from pathlib import Path
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+print(sys.path)  # debug
+print(Path(__file__).resolve().parent.parent)  # debug
+
 import re
 import ipaddress
 from dateutil import parser as dateparser
 from datetime import datetime
 from collections import Counter
+
+from assets.event_types_assets import EVENT_PATTERNS
+from assets.get_user_assets import patterns
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "traning_logs_auth.log"
 
@@ -63,17 +73,6 @@ def time_stamp(log):
 
 
 def get_user(log):
-    
-    patterns = [
-        r"Failed password for invalid user (?P<user>\S+)",
-        r"Failed password for (?P<user>\S+)",
-        r"Invalid user (?P<user>\S+)",
-        r"Accepted password for (?P<user>\S+)",
-        r"Accepted publickey for (?P<user>\S+)"
-        r"Received disconnect from (?P<user>\S+)"
-        r"session (?:opened|closed) for user (?P<user>\S+)"
-        r"Disconnected from user (?P<user>\S+)"
-    ]
                 
     for pattern in patterns:
         match = re.search(pattern, log, re.IGNORECASE)
@@ -88,38 +87,10 @@ def get_event_type(log):
     
     log_lower = log.lower()
 
-    if "failed password for invalid user" in log_lower:
-        return "failed_invalid_user"
-    elif "failed password" in log_lower:
-        return "failed_login"
-    elif "invalid user" in log_lower:
-        return "invalid_user"
-    elif "accepted password" in log_lower:
-        return "accepted_login"
-    elif "accepted publickey for" in log_lower:
-        return "accepted_publickey"
-    elif "did not receive identification string from" in log_lower:
-        return "not_receive_identifiaction"
-    elif "maximum authentication attempts exceeded" or "too many authentication failures" in log_lower:
-        return "max_auth_attempts"
-    elif "connection closed by" in log_lower:
-        return "connection_closed"
-    elif "error: pam: Authentication failure" in log_lower:
-        return "pam_auth_fail"
-    elif "connection reset by" in log_lower:
-        return "connection_reset"
-    elif "everse mapping checking getaddrinfo for" in log_lower:
-        return "failed_everse_mapping_getaddrinfo"
-    elif "received disconnect from" in log_lower:
-        return "received_disconnect"
-    elif "disconnected from" in log_lower:
-        return "disconnected"
-    elif "session opened for" in log_lower:
-        return "session_opened"
-    elif "session closed for" in log_lower:
-        return "session_closed"
-    else:
-        return
+    for pattern, event_type in EVENT_PATTERNS:
+        if pattern in log_lower:
+            return event_type
+    return None
 
 def find_events(log_lines):
     events = []
@@ -133,7 +104,7 @@ def find_events(log_lines):
         
         port_match = re.search(port_regex, log)
         port = int(port_match.group(1)) if port_match else None
-        
+
         event = {
             "time" : time_stamp(log),
             "type" : event_type,
