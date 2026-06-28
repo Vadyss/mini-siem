@@ -3,8 +3,8 @@ from pathlib import Path
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-print(sys.path)  # debug
-print(Path(__file__).resolve().parent.parent)  # debug
+print(sys.path) 
+print(Path(__file__).resolve().parent.parent) 
 
 import re
 import ipaddress
@@ -42,9 +42,9 @@ def is_valid_ip(log):
             
     for candidate in ipv6_regex.findall(log):
         try:
-            ipaddress.IPv6Address(candidate)
-            ip.append(match.group(0))
-            return str(ipaddress.IPv6Address(candidate))
+            valid = str(ipaddress.IPv6Address(candidate))
+            ip.append(valid)
+            return valid
         except ValueError:
             pass
     
@@ -71,7 +71,6 @@ def time_stamp(log):
                 continue
     return None
 
-
 def get_user(log):
                 
     for pattern in patterns:
@@ -80,8 +79,7 @@ def get_user(log):
         if match:
             return match.group("user")
 
-    return None
-               
+    return None            
 
 def get_event_type(log):
     
@@ -179,32 +177,41 @@ def unique_users(events):
     
     return unique_users_count
 
-def ip_aggregation(events, ip):
+def ip_aggregation(events):
     
+    ip = []
+    
+    for event in events:
+        if event['type'] in ("invalid_user", "failed_invalid_user" , "failed_login"):
+            ip.append(event['ip'])
+    
+    sec_brute_force = []
     pot_brute_force = []
     counts = Counter(ip)
     
     result = {k: v for k, v in counts.items() if v >= 2}
     
     if not result:
-        pass
-    if result:
-        
-        print("=" * 50)
-        
-        for ip, count in result.items():
-            
-            if count > 5 or count == 5:
-                print("Potencional brute force attack from this IP:")
-                print(f"{ip} : {count}")
-                
-                brute_foce_adress = {ip : count}
-                
-                return pot_brute_force.append(brute_foce_adress)
-                
-            elif count < 5:
-                print(f"{ip} : {count}")
+        return pot_brute_force
     
+    print("=" * 50)
+    
+    for ip, count in result.items():
+        if count >= 5:
+            
+                successful = any(event['ip'] == ip and event['type'] == "accepted_login" for event in events)
+
+                if successful:
+                    print("Successful brute force attack from this IP:")
+                    print(f"{ip} : {count}")
+                    sec_brute_force.append({ip: count})
+                else:
+                    print("Potencial brute force attack from this IP:")
+                    print(f"{ip} : {count}")
+                    pot_brute_force.append({ip: count})
+    
+    return pot_brute_force, sec_brute_force
+
 def print_events(events):
     
     for event in events:
@@ -237,5 +244,5 @@ if __name__ == "__main__":
     print_events(events)
     summary_events(events)
     
-    pot_brute_force = ip_aggregation(events, ip)
+    pot_brute_force, sec_brute_force = ip_aggregation(events)
     summary_pot_brute_force(pot_brute_force)
