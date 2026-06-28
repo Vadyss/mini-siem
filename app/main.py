@@ -291,11 +291,97 @@ def user_aggregation(events):
     
     return pot_brute_force_user, sec_brute_force_user
 
-def ip_severity(pot_brute_force_user, sec_brute_force_user):
-    return
+def ip_severity(pot_brute_force_ip, sec_brute_force_ip):
+    
+    pot_brute_force_ip_severity = []
+    sec_brute_force_ip_severity = []
+    
+    low = "LOW"
+    mid = "MID"
+    high = "HIGH"
+    critical = "CRITICAL"
+    
+    for entry in pot_brute_force_ip:
+        for ip, count in entry.items():
+        
+            if count <= 5:
+                pot_brute_force_ip_severity.append({ip: {"count": count, "severity": low}})
+            elif count <= 20:
+                pot_brute_force_ip_severity.append({ip: {"count": count, "severity": mid}})
+            elif count <= 50:
+                pot_brute_force_ip_severity.append({ip: {"count": count, "severity": high}})
+            else:
+                pot_brute_force_ip_severity.append({ip: {"count": count, "severity": critical}})
+            
+    for entry in sec_brute_force_ip:
+        for ip, count in entry.items():
+        
+            if count <= 5:
+                sec_brute_force_ip_severity.append({ip: {"count": count, "severity": low}})
+            elif count <= 20:
+                sec_brute_force_ip_severity.append({ip: {"count": count, "severity": mid}})
+            elif count <= 50:
+                sec_brute_force_ip_severity.append({ip: {"count": count, "severity": high}})
+            else:
+                sec_brute_force_ip_severity.append({ip: {"count": count, "severity": critical}})
+    
+    print("\n--- Potential Brute Force from IPs ---")
+    for entry in pot_brute_force_ip_severity:
+        for ip, data in entry.items():
+            print(f"  {ip} | count: {data['count']} | severity: {data['severity']}")
+
+    print("\n--- Successful Brute Force from IPs ---")
+    for entry in sec_brute_force_ip_severity:
+        for ip, data in entry.items():
+            print(f"  {ip} | count: {data['count']} | severity: {data['severity']}")
+    
+    return pot_brute_force_ip_severity, sec_brute_force_ip_severity
 
 def user_severity(pot_brute_force_user, sec_brute_force_user):
-    return
+    
+    pot_brute_force_user_severity = []
+    sec_brute_force_user_severity = []
+    
+    low = "LOW"
+    mid = "MID"
+    high = "HIGH"
+    critical = "CRITICAL"
+    
+    for entry in pot_brute_force_user:
+        for user, count in entry.items():
+        
+            if count <= 5:
+                pot_brute_force_user_severity.append({user: {"count": count, "severity": low}})
+            elif count <= 20:
+                pot_brute_force_user_severity.append({user: {"count": count, "severity": mid}})
+            elif count <= 50:
+                pot_brute_force_user_severity.append({user: {"count": count, "severity": high}})
+            else:
+                pot_brute_force_user_severity.append({user: {"count": count, "severity": critical}})
+    
+    for entry in sec_brute_force_user:
+        for user, count in entry.items():
+        
+            if count <= 5:
+                sec_brute_force_user_severity.append({user: {"count": count, "severity": low}})
+            elif count <= 20:
+                sec_brute_force_user_severity.append({user: {"count": count, "severity": mid}})
+            elif count <= 50:
+                sec_brute_force_user_severity.append({user: {"count": count, "severity": high}})
+            else:
+                sec_brute_force_user_severity.append({user: {"count": count, "severity": critical}})
+
+    print("\n--- Potential Brute Force on Users ---")
+    for entry in pot_brute_force_user_severity:
+        for user, data in entry.items():
+            print(f"  {user} | count: {data['count']} | severity: {data['severity']}")
+
+    print("\n--- Successful Brute Force on Users ---")
+    for entry in sec_brute_force_user_severity:
+        for user, data in entry.items():
+            print(f"  {user} | count: {data['count']} | severity: {data['severity']}")
+    
+    return pot_brute_force_user_severity, sec_brute_force_user_severity
 
 def print_events(events):
     
@@ -343,3 +429,6 @@ if __name__ == "__main__":
     
     summary_pot_brute_force_ip(pot_brute_force_ip, sec_brute_force_ip)
     summary_pot_brute_force_user(pot_brute_force_user, sec_brute_force_user)
+    
+    pot_brute_force_ip_severity, sec_brute_force_ip_severity = ip_severity(pot_brute_force_ip, sec_brute_force_ip)
+    pot_brute_force_user_severity, sec_brute_force_user_severity = user_severity(pot_brute_force_user, sec_brute_force_user)
