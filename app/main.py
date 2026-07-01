@@ -74,7 +74,7 @@ if __name__ == "__main__":
     }
 
     if args.output == "json":
-        import json
+        import json                    
         print(json.dumps(results, indent=2, default=str))
 
     elif args.output == "csv":
